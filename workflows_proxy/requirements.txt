@@ -1,0 +1,4 @@
+pydantic>=2.9.2,<3.0.0
+google-cloud-workflows>=1.22.0,<2.0.0
+google-cloud-logging>=3.11.3,<4.0.0
+functions-framework>=3.10.2,<4.0.0
