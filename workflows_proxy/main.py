@@ -70,13 +70,22 @@ def handle_eventarc_request(request):
     request_json = request.get_json(silent=True) or {}
     file_name = request_json.get('name', '')
 
-    # 1. フォルダ名の抽出
+    # 1. フォルダ名とファイル名の抽出
     if '/' in file_name:
         folder_name = file_name.split('/')[0]
+        file_basename = file_name.split('/')[-1]  # ファイル名部分だけを抽出
     else:
         msg = f"ルート直下のファイルは無視します: {file_name}"
         logger.info(msg)
         return json.dumps({"status": "Ignored", "message": msg}, ensure_ascii=False), 200, {'Content-Type': 'application/json'}
+
+    # ---------------------------------------------------------
+    # 【第1の関所】起因の制御（IFファイル以外は弾く）
+    # ---------------------------------------------------------
+    if not file_basename.startswith('ccr_dp_'):
+        msg = f"IFファイル(ccr_dp_)ではないためスキップします: {file_name}"
+        logger.info(msg)
+        return json.dumps({"status": "Skipped", "message": msg}, ensure_ascii=False), 200, {'Content-Type': 'application/json'}
 
     # 2. ルーティングの決定
     workflow_id = ROUTING_TABLE.get(folder_name)
@@ -110,6 +119,23 @@ def handle_eventarc_request(request):
     }
 
     parent = f"projects/{WF_PROJECT_ID}/locations/{WF_LOCATION}/workflows/{workflow_id}"
+    
+    # ---------------------------------------------------------
+    # 【第2の関所】重複起動の制御（現在実行中なら弾く）
+    # ---------------------------------------------------------
+    try:
+        # 対象ワークフローの最新履歴を取得（直近10件）
+        list_req = executions_v1.ListExecutionsRequest(parent=parent, page_size=10)
+        recent_executions = _client.list_executions(request=list_req)
+        
+        for exec_item in recent_executions:
+            if exec_item.state == executions_v1.Execution.State.ACTIVE:
+                msg = f"ワークフロー '{workflow_id}' は現在すでに実行中です。後続ファイル({file_name})による重複起動をスキップします。"
+                logger.info(msg)
+                return json.dumps({"status": "Skipped", "message": msg}, ensure_ascii=False), 200, {'Content-Type': 'application/json'}
+    except Exception as check_e:
+        logger.warning(f"実行中ステータスの確認に失敗しました。本来の起動処理を継続します: {check_e}")
+
     logger.info(f"Attempting to trigger workflow(Eventarc): {workflow_id} for Cloud Run Jobs execution date: {run_job_scheduled_time}")
 
     # 5. GCP例外ハンドリング（Scheduler側と完全一致）
