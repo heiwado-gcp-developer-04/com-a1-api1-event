@@ -133,14 +133,17 @@ def handle_eventarc_request(request):
         error_msg = f"指定されたワークフロー '{workflow_id}' が見つかりませんでした。"
         logger.error(f"【404エラー】{error_msg} (パス: {parent} | 詳細: {e.message})")
         return json.dumps({"status": "Not Found", "message": error_msg, "details": e.message}, ensure_ascii=False), 404, {'Content-Type': 'application/json'}
+    
     except exceptions.PermissionDenied as e:
         error_msg = "ワークフローを起動する権限がありません。"
         logger.error(f"【403エラー】{error_msg} (詳細: {e.message})")
         return json.dumps({"status": "Permission Denied", "message": error_msg, "details": e.message}, ensure_ascii=False), 403, {'Content-Type': 'application/json'}
+    
     except exceptions.GoogleAPICallError as e:
         error_msg = "Google Cloud APIの呼び出し中にエラーが発生しました。"
         logger.error(f"【GCP APIエラー】{error_msg} (詳細: {e.message})")
         return json.dumps({"status": "GCP API Error", "message": error_msg, "details": e.message}, ensure_ascii=False), 500, {'Content-Type': 'application/json'}
+    
     except Exception as e:
         error_msg = "プログラム内部で予期せぬエラーが発生しました。"
         logger.error(f"【500システムエラー】{error_msg} (詳細: {str(e)})", exc_info=True)
