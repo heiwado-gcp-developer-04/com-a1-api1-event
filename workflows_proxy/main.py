@@ -3,32 +3,40 @@ import json
 import logging
 from datetime import datetime, timezone
 
+import functions_framework
 from google.cloud.workflows import executions_v1
 from google.api_core import exceptions
+import google.cloud.logging
 
-# ==============================================================================
-# 初期設定・グローバル変数
-# ==============================================================================
-# ロガーの設定
-logging.basicConfig(level=logging.INFO)
+# ==========================================
+# ログの初期設定 (GCP Cloud Logging との統合)
+# ==========================================
+try:
+    log_client = google.cloud.logging.Client()
+    log_client.setup_logging()
+except Exception:
+    logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
-# 環境変数
+# ==========================================
+# 環境変数 & Workflows Client
+# ==========================================
 WF_PROJECT_ID = os.environ.get("WF_PROJECT_ID")
 WF_LOCATION = os.environ.get("LOCATION")
 
-# Workflowsクライアントの初期化（再利用のためグローバル配置）
 _client = executions_v1.ExecutionsClient()
 
-# ルーティングテーブル（必要に応じて追加・変更してください）
+# ==========================================
+# ルーティングテーブル
+# ==========================================
 ROUTING_TABLE = {
-    "BDRDayDscntBudget": "dev-dwh-e36-wf01-01-fresh-order-send-to-dwh",
     "IVRCreationAmtRsltWeekly": "dev-dwh-e36-wf01-01-fresh-order-send-to-dwh",
 }
 
-# ==============================================================================
-# ヘルパー関数
-# ==============================================================================
+# ==========================================
+# タイムスタンプフォーマット変換関数
+# ==========================================
 def format_to_job_utc(dt: datetime) -> str:
     """日時のフォーマットを整える（Cloud Run Jobsの引数用）"""
     return dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -36,11 +44,8 @@ def format_to_job_utc(dt: datetime) -> str:
 # ==============================================================================
 # 【メイン処理】 Eventarc (ファイル検知) 起動用ハンドラー
 # ==============================================================================
+@functions_framework.http
 def handle_eventarc_request(request):
-    """
-    EventarcからのHTTPリクエストを受け取り、条件に合致する場合のみWorkflowsを起動する。
-    ※Cloud Functionsのエントリポイントにはこの関数名を設定してください。
-    """
     ce_id = request.headers.get('ce-id')
     ce_time = request.headers.get('ce-time', '')
     ce_source = request.headers.get('ce-source', '')
@@ -60,9 +65,8 @@ def handle_eventarc_request(request):
         return json.dumps({"status": "Ignored", "message": msg}, ensure_ascii=False), 200, {'Content-Type': 'application/json'}
 
     # ---------------------------------------------------------
-    # 【関所】起因の制御（本命のIFファイル以外はすべて弾く）
+    # 起因の制御（正常配置のIFファイル以外はすべて弾く）
     # ---------------------------------------------------------
-    
     # ① 階層（深さ）チェック：サブフォルダ（中間ファイルやバックアップ）を弾く
     if file_name.count('/') > 1:
         msg = f"サブフォルダ（バックアップ/中間ファイル）への出力のためスキップします: {file_name}"
@@ -127,24 +131,17 @@ def handle_eventarc_request(request):
 
     except exceptions.NotFound as e:
         error_msg = f"指定されたワークフロー '{workflow_id}' が見つかりませんでした。"
-        error_response = {"status": "Not Found", "message": error_msg, "details": e.message}
         logger.error(f"【404エラー】{error_msg} (パス: {parent} | 詳細: {e.message})")
-        return json.dumps(error_response, ensure_ascii=False), 404, {'Content-Type': 'application/json'}
-
+        return json.dumps({"status": "Not Found", "message": error_msg, "details": e.message}, ensure_ascii=False), 404, {'Content-Type': 'application/json'}
     except exceptions.PermissionDenied as e:
         error_msg = "ワークフローを起動する権限がありません。"
-        error_response = {"status": "Permission Denied", "message": error_msg, "details": e.message}
         logger.error(f"【403エラー】{error_msg} (詳細: {e.message})")
-        return json.dumps(error_response, ensure_ascii=False), 403, {'Content-Type': 'application/json'}
-
+        return json.dumps({"status": "Permission Denied", "message": error_msg, "details": e.message}, ensure_ascii=False), 403, {'Content-Type': 'application/json'}
     except exceptions.GoogleAPICallError as e:
         error_msg = "Google Cloud APIの呼び出し中にエラーが発生しました。"
-        error_response = {"status": "GCP API Error", "message": error_msg, "details": e.message}
         logger.error(f"【GCP APIエラー】{error_msg} (詳細: {e.message})")
-        return json.dumps(error_response, ensure_ascii=False), 500, {'Content-Type': 'application/json'}
-
+        return json.dumps({"status": "GCP API Error", "message": error_msg, "details": e.message}, ensure_ascii=False), 500, {'Content-Type': 'application/json'}
     except Exception as e:
         error_msg = "プログラム内部で予期せぬエラーが発生しました。"
-        error_response = {"status": "Internal Server Error", "message": error_msg, "details": str(e)}
         logger.error(f"【500システムエラー】{error_msg} (詳細: {str(e)})", exc_info=True)
-        return json.dumps(error_response, ensure_ascii=False), 500, {'Content-Type': 'application/json'}
+        return json.dumps({"status": "Internal Server Error", "message": error_msg, "details": str(e)}, ensure_ascii=False), 500, {'Content-Type': 'application/json'}
