@@ -38,8 +38,12 @@ ROUTING_TABLE = {
 # タイムスタンプフォーマット変換関数
 # ==========================================
 def format_to_job_utc(dt: datetime) -> str:
-    """日時のフォーマットを整える（Cloud Run Jobsの引数用）"""
-    return dt.strftime('%Y-%m-%d %H:%M:%S')
+    """
+    datetimeオブジェクトを、Cloud Run Jobのアプリ側がパースできる形式
+    (2026-05-26 07:51:00.000000+00:00)に変換して返す
+    """
+    dt_utc = dt.astimezone(timezone.utc)
+    return dt_utc.strftime('%Y-%m-%d %H:%M:%S.%f') + '+00:00'
 
 # ==============================================================================
 # 【メイン処理】 Eventarc (ファイル検知) 起動用ハンドラー
