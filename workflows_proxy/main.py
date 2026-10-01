@@ -67,18 +67,23 @@ def trigger_workflow(request):
     # ---------------------------------------------------------
     # 起因の制御（正常配置のIFファイル以外はすべて弾く）
     # ---------------------------------------------------------
-    # ① 階層（深さ）チェック：サブフォルダ（中間ファイルやバックアップ）を弾く
+    # ① 階層（深さ）チェック：サブフォルダの場合は、さらに理由を分類して弾く
     if file_name.count('/') > 1:
-        msg = f"サブフォルダ（バックアップ/中間ファイル）への出力のためスキップします: {file_name}"
+        if file_basename.startswith('ccr_dp_'):
+            # IFファイル名なのにサブフォルダにある ＝ バックアップ処理と判定
+            msg = f"バックアップ処理による配置のためスキップします: {file_name}"
+        else:
+            # IFファイル名ではない ＝ 中間ファイル（parquet等）と判定
+            msg = f"中間ファイル出力処理による配置のためスキップします: {file_name}"
+            
         logger.info(msg)
         return json.dumps({"status": "Skipped", "message": msg}, ensure_ascii=False), 200, {'Content-Type': 'application/json'}
 
-    # ② ファイル名チェック：正規のIFプレフィックスか確認する
+    # ② ファイル名チェック：ルート直下でも、正規のIFプレフィックスでなければ弾く
     if not file_basename.startswith('ccr_dp_'):
-        msg = f"IFファイル(ccr_dp_〜)ではないためスキップします: {file_name}"
+        msg = f"対象のIFファイル(ccr_dp_〜)ではないためスキップします: {file_name}"
         logger.info(msg)
         return json.dumps({"status": "Skipped", "message": msg}, ensure_ascii=False), 200, {'Content-Type': 'application/json'}
-
     # ---------------------------------------------------------
     
     # 2. ルーティングの決定
