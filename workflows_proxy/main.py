@@ -45,7 +45,7 @@ def format_to_job_utc(dt: datetime) -> str:
 # 【メイン処理】 Eventarc (ファイル検知) 起動用ハンドラー
 # ==============================================================================
 @functions_framework.http
-def handle_eventarc_request(request):
+def trigger_workflow(request):
     ce_id = request.headers.get('ce-id')
     ce_time = request.headers.get('ce-time', '')
     ce_source = request.headers.get('ce-source', '')
