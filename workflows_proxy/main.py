@@ -28,11 +28,17 @@ WF_LOCATION = os.environ.get("LOCATION")
 _client = executions_v1.ExecutionsClient()
 
 # ==========================================
-# ルーティングテーブル
+# ファイルパスとワークフローの紐づけ (環境変数から動的読み込み)
 # ==========================================
-ROUTING_TABLE = {
-    "IVRCreationAmtRsltWeekly": "dev-dwh-e36-wf01-01-fresh-order-send-to-dwh",
-}
+# 環境変数 'ROUTING_TABLE' を取得（未設定の場合は空のJSON文字列 "{}" をデフォルトとする）
+routing_table_env = os.environ.get("ROUTING_TABLE", "{}")
+
+try:
+    # エラーハンドリング　JSON文字列をPythonの辞書（dict）に変換
+    ROUTING_TABLE = json.loads(routing_table_env)
+except json.JSONDecodeError as e:
+    logger.error(f"【環境変数エラー】ROUTING_TABLEのJSON形式が不正です。設定を見直してください: {e}")
+    ROUTING_TABLE = {}
 
 # ==========================================
 # タイムスタンプフォーマット変換関数
